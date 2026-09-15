@@ -3,64 +3,137 @@ import { EmbedBuilder } from 'discord.js';
 import { pgDb } from './postgresDatabase.js';
 import { logger } from './logger.js';
 
-const TABLE = 'torn_log_configs';
+const SETTINGS_TABLE = 'torn_guild_settings';
+const USERS_TABLE = 'torn_user_configs';
 const TORN_API_BASE = 'https://api.torn.com/user/';
 const DEFAULT_INTERVAL_MS = 60000;
+const DELAY_BETWEEN_USERS_MS = 1500; // schont sowohl Torn- als auch Discord-Rate-Limits
+const DELAY_BETWEEN_MESSAGES_MS = 500;
 
-let tableEnsured = false;
+let tablesEnsured = false;
 const activeIntervals = new Map(); // guildId -> interval handle
 
-async function ensureTable() {
-    if (tableEnsured || !pgDb.isAvailable()) return;
+async function ensureTables() {
+    if (tablesEnsured || !pgDb.isAvailable()) return;
     await pgDb.pool.query(`
-        CREATE TABLE IF NOT EXISTS ${TABLE} (
+        CREATE TABLE IF NOT EXISTS ${SETTINGS_TABLE} (
             guild_id VARCHAR(20) PRIMARY KEY,
-            api_key VARCHAR(64) NOT NULL,
-            torn_user_id VARCHAR(32),
             channel_id VARCHAR(20) NOT NULL,
-            categories VARCHAR(255),
-            last_timestamp BIGINT NOT NULL DEFAULT 0,
             enabled BOOLEAN NOT NULL DEFAULT FALSE,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     `);
-    tableEnsured = true;
+    await pgDb.pool.query(`
+        CREATE TABLE IF NOT EXISTS ${USERS_TABLE} (
+            id SERIAL PRIMARY KEY,
+            guild_id VARCHAR(20) NOT NULL,
+            discord_user_id VARCHAR(20) NOT NULL,
+            api_key VARCHAR(64) NOT NULL,
+            torn_user_id VARCHAR(32),
+            categories VARCHAR(255),
+            last_timestamp BIGINT NOT NULL DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(guild_id, discord_user_id)
+        )
+    `);
+    tablesEnsured = true;
 }
 
-export async function getConfig(guildId) {
-    await ensureTable();
+function assertDbAvailable() {
+    if (!pgDb.isAvailable()) {
+        throw new Error('Database is currently unavailable. Please try again in a moment.');
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Guild-Einstellungen (Channel, an/aus)
+// ---------------------------------------------------------------------------
+export async function getGuildSettings(guildId) {
+    await ensureTables();
     if (!pgDb.isAvailable()) return null;
-    const result = await pgDb.pool.query(`SELECT * FROM ${TABLE} WHERE guild_id = $1`, [guildId]);
+    const result = await pgDb.pool.query(`SELECT * FROM ${SETTINGS_TABLE} WHERE guild_id = $1`, [guildId]);
     return result.rows[0] || null;
 }
 
-export async function upsertConfig(guildId, { apiKey, tornUserId = null, channelId, categories = null }) {
-    await ensureTable();
+export async function setGuildChannel(guildId, channelId) {
+    await ensureTables();
+    assertDbAvailable();
     await pgDb.pool.query(
-        `INSERT INTO ${TABLE} (guild_id, api_key, torn_user_id, channel_id, categories, updated_at)
-         VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
-         ON CONFLICT (guild_id) DO UPDATE SET
-           api_key = $2, torn_user_id = $3, channel_id = $4, categories = $5, updated_at = CURRENT_TIMESTAMP`,
-        [guildId, apiKey, tornUserId, channelId, categories]
+        `INSERT INTO ${SETTINGS_TABLE} (guild_id, channel_id, updated_at)
+         VALUES ($1, $2, CURRENT_TIMESTAMP)
+         ON CONFLICT (guild_id) DO UPDATE SET channel_id = $2, updated_at = CURRENT_TIMESTAMP`,
+        [guildId, channelId]
     );
 }
 
-export async function setEnabled(guildId, enabled) {
-    await ensureTable();
+export async function setGuildEnabled(guildId, enabled) {
+    await ensureTables();
+    assertDbAvailable();
     await pgDb.pool.query(
-        `UPDATE ${TABLE} SET enabled = $2, updated_at = CURRENT_TIMESTAMP WHERE guild_id = $1`,
+        `UPDATE ${SETTINGS_TABLE} SET enabled = $2, updated_at = CURRENT_TIMESTAMP WHERE guild_id = $1`,
         [guildId, enabled]
     );
 }
 
-async function setLastTimestamp(guildId, ts) {
+// ---------------------------------------------------------------------------
+// Pro-Mitglied-Registrierung
+// ---------------------------------------------------------------------------
+export async function registerUser(guildId, discordUserId, { apiKey, tornUserId = null, categories = null }) {
+    await ensureTables();
+    assertDbAvailable();
     await pgDb.pool.query(
-        `UPDATE ${TABLE} SET last_timestamp = $2, updated_at = CURRENT_TIMESTAMP WHERE guild_id = $1`,
-        [guildId, ts]
+        `INSERT INTO ${USERS_TABLE} (guild_id, discord_user_id, api_key, torn_user_id, categories, updated_at)
+         VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
+         ON CONFLICT (guild_id, discord_user_id) DO UPDATE SET
+           api_key = $3, torn_user_id = $4, categories = $5, updated_at = CURRENT_TIMESTAMP`,
+        [guildId, discordUserId, apiKey, tornUserId, categories]
     );
 }
 
+export async function unregisterUser(guildId, discordUserId) {
+    await ensureTables();
+    assertDbAvailable();
+    const result = await pgDb.pool.query(
+        `DELETE FROM ${USERS_TABLE} WHERE guild_id = $1 AND discord_user_id = $2`,
+        [guildId, discordUserId]
+    );
+    return result.rowCount > 0;
+}
+
+export async function getUserConfig(guildId, discordUserId) {
+    await ensureTables();
+    if (!pgDb.isAvailable()) return null;
+    const result = await pgDb.pool.query(
+        `SELECT * FROM ${USERS_TABLE} WHERE guild_id = $1 AND discord_user_id = $2`,
+        [guildId, discordUserId]
+    );
+    return result.rows[0] || null;
+}
+
+export async function listRegisteredUsers(guildId) {
+    await ensureTables();
+    if (!pgDb.isAvailable()) return [];
+    const result = await pgDb.pool.query(
+        `SELECT discord_user_id, torn_user_id, last_timestamp FROM ${USERS_TABLE} WHERE guild_id = $1 ORDER BY created_at ASC`,
+        [guildId]
+    );
+    return result.rows;
+}
+
+async function setUserLastTimestamp(guildId, discordUserId, ts) {
+    if (!pgDb.isAvailable()) return;
+    await pgDb.pool.query(
+        `UPDATE ${USERS_TABLE} SET last_timestamp = $3, updated_at = CURRENT_TIMESTAMP
+         WHERE guild_id = $1 AND discord_user_id = $2`,
+        [guildId, discordUserId, ts]
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Torn API
+// ---------------------------------------------------------------------------
 async function fetchLogs({ apiKey, tornUserId, fromTs, categories }) {
     const params = new URLSearchParams({ selections: 'log', key: apiKey, sort: 'ASC' });
     if (fromTs) params.set('from', String(fromTs + 1));
@@ -72,19 +145,24 @@ async function fetchLogs({ apiKey, tornUserId, fromTs, categories }) {
 
     if (data.error) {
         logger.warn(`[TornLogTracker] API-Fehler ${data.error.code}: ${data.error.error}`);
-        return [];
+        return { entries: [], apiError: data.error };
     }
 
-    return Object.entries(data.log || {})
+    const entries = Object.entries(data.log || {})
         .map(([ts, entry]) => ({ ...entry, timestamp: Number(ts) }))
         .sort((a, b) => a.timestamp - b.timestamp);
+
+    return { entries, apiError: null };
 }
 
-function buildEmbed(entry) {
+function buildEmbed(entry, discordUserId) {
     const embed = new EmbedBuilder()
         .setTitle(entry.title || 'Torn Log Eintrag')
         .setColor(0x5865f2)
-        .setTimestamp(entry.timestamp * 1000);
+        .setTimestamp(entry.timestamp * 1000)
+        .setFooter({ text: `Mitglied: ${discordUserId}` });
+
+    embed.setDescription(`<@${discordUserId}>`);
 
     if (entry.data && typeof entry.data === 'object') {
         const text = Object.entries(entry.data)
@@ -93,47 +171,69 @@ function buildEmbed(entry) {
             .slice(0, 1024);
         if (text) embed.addFields({ name: 'Details', value: text });
     }
-    if (entry.category) embed.setFooter({ text: `Kategorie: ${entry.category}` });
 
     return embed;
 }
 
-async function poll(client, guildId) {
-    const config = await getConfig(guildId);
-    if (!config || !config.enabled) return;
+// ---------------------------------------------------------------------------
+// Polling
+// ---------------------------------------------------------------------------
+async function pollUser(channel, guildId, userConfig) {
+    const { discord_user_id: discordUserId, api_key: apiKey, torn_user_id: tornUserId, categories } = userConfig;
 
-    const channel = client.channels.cache.get(config.channel_id);
-    if (!channel || !channel.isTextBased()) {
-        logger.warn(`[TornLogTracker] Channel ${config.channel_id} für Guild ${guildId} nicht gefunden.`);
-        return;
-    }
-
-    let entries;
+    let result;
     try {
-        entries = await fetchLogs({
-            apiKey: config.api_key,
-            tornUserId: config.torn_user_id,
-            fromTs: Number(config.last_timestamp),
-            categories: config.categories,
+        result = await fetchLogs({
+            apiKey,
+            tornUserId,
+            fromTs: Number(userConfig.last_timestamp),
+            categories,
         });
     } catch (err) {
-        logger.error(`[TornLogTracker] Fehler beim Abrufen der Logs für Guild ${guildId}:`, err);
+        logger.error(`[TornLogTracker] Fehler beim Abrufen der Logs für Discord-User ${discordUserId} (Guild ${guildId}):`, err);
         return;
     }
 
-    if (entries.length === 0) return;
+    if (result.apiError) {
+        // Ungültiger Key o.ä. -> nicht jeden Poll-Zyklus erneut versuchen und spammen,
+        // aber auch nicht automatisch löschen; einfach überspringen.
+        return;
+    }
 
-    for (const entry of entries) {
+    if (result.entries.length === 0) return;
+
+    for (const entry of result.entries) {
         try {
-            await channel.send({ embeds: [buildEmbed(entry)] });
+            await channel.send({ embeds: [buildEmbed(entry, discordUserId)] });
         } catch (err) {
             logger.error('[TornLogTracker] Konnte Nachricht nicht senden:', err);
         }
-        await new Promise((r) => setTimeout(r, 500));
+        await new Promise((r) => setTimeout(r, DELAY_BETWEEN_MESSAGES_MS));
     }
 
-    await setLastTimestamp(guildId, entries[entries.length - 1].timestamp);
-    logger.info(`[TornLogTracker] ${entries.length} neue Log-Einträge für Guild ${guildId} gepostet.`);
+    await setUserLastTimestamp(guildId, discordUserId, result.entries[result.entries.length - 1].timestamp);
+    logger.info(`[TornLogTracker] ${result.entries.length} neue Log-Einträge für Discord-User ${discordUserId} (Guild ${guildId}) gepostet.`);
+}
+
+async function poll(client, guildId) {
+    const settings = await getGuildSettings(guildId);
+    if (!settings || !settings.enabled) return;
+
+    const channel = client.channels.cache.get(settings.channel_id);
+    if (!channel || !channel.isTextBased()) {
+        logger.warn(`[TornLogTracker] Channel ${settings.channel_id} für Guild ${guildId} nicht gefunden.`);
+        return;
+    }
+
+    const users = await listRegisteredUsers(guildId);
+    if (users.length === 0) return;
+
+    for (const user of users) {
+        const fullConfig = await getUserConfig(guildId, user.discord_user_id);
+        if (!fullConfig) continue;
+        await pollUser(channel, guildId, fullConfig);
+        await new Promise((r) => setTimeout(r, DELAY_BETWEEN_USERS_MS));
+    }
 }
 
 export function isTracking(guildId) {
@@ -158,9 +258,9 @@ export function stopTracking(guildId) {
 
 // Beim Bot-Start aufrufen, um zuvor aktivierte Guilds wieder zu tracken.
 export async function initTornLogTracker(client) {
-    await ensureTable();
+    await ensureTables();
     if (!pgDb.isAvailable()) return;
-    const result = await pgDb.pool.query(`SELECT guild_id FROM ${TABLE} WHERE enabled = TRUE`);
+    const result = await pgDb.pool.query(`SELECT guild_id FROM ${SETTINGS_TABLE} WHERE enabled = TRUE`);
     for (const row of result.rows) {
         startTracking(client, row.guild_id);
     }
