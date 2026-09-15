@@ -1,4 +1,4 @@
-const { startTornLogTracker } = require("./tornLogTracker");
+const { startTornLogTracker } = require("src/services/tornLogTracker");
 
 client.once("ready", () => {
   console.log(`Eingeloggt als ${client.user.tag}`);
