@@ -2,7 +2,7 @@
 import { MessageFlags, PermissionFlagsBits } from 'discord.js';
 import { successEmbed } from '../../../utils/embeds.js';
 import { replyUserError, ErrorTypes } from '../../../utils/errorHandler.js';
-import { setEnabled, stopTracking } from '../../../utils/tornLogTracker.js';
+import { setGuildEnabled, stopTracking } from '../../../utils/tornLogTracker.js';
 
 export default {
     async execute(interaction) {
@@ -14,7 +14,7 @@ export default {
         }
 
         const stopped = stopTracking(interaction.guildId);
-        await setEnabled(interaction.guildId, false);
+        await setGuildEnabled(interaction.guildId, false);
 
         return await interaction.reply({
             embeds: [successEmbed(stopped ? 'Torn-Log-Tracking gestoppt.' : 'Lief nicht.')],
