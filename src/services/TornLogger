@@ -1,0 +1,246 @@
+// tornLogTracker.js
+const fs = require("fs");
+const path = require("path");
+const { EmbedBuilder } = require("discord.js");
+
+const TORN_API_BASE = "https://api.torn.com/user/";
+const STATE_FILE = path.join(__dirname, "torn-log-state.json");
+
+function loadState() {
+  try {
+    return JSON.parse(fs.readFileSync(STATE_FILE, "utf8"));
+  } catch {
+    return { lastTimestamp: 0 };
+  }
+}
+
+function saveState(state) {
+  fs.writeFileSync(STATE_FILE, JSON.stringify(state));
+}
+
+function buildEmbed(entry) {
+  const embed = new EmbedBuilder()
+    .setTitle(entry.title || "Torn Log Eintrag")
+    .setColor(0x5865f2)
+    .setTimestamp(entry.timestamp * 1000);
+
+  if (entry.data && typeof entry.data === "object") {
+    const lines = Object.entries(entry.data).map(([k, v]) => `**${k}:** ${v}`);
+    const text = lines.join("\n").slice(0, 1024);
+    if (text) embed.addFields({ name: "Details", value: text });
+  }
+
+  if (entry.category) embed.setFooter({ text: `Kategorie: ${entry.category}` });
+
+  return embed;
+}
+
+async function fetchLogs({ apiKey, userId, fromTs, categories }) {
+  const params = new URLSearchParams({
+    selections: "log",
+    key: apiKey,
+    sort: "ASC",
+  });
+  if (fromTs) params.set("from", String(fromTs + 1));
+  if (categories) params.set("cat", categories);
+
+  const url = `${TORN_API_BASE}${userId || ""}?${params.toString()}`;
+  const res = await fetch(url, { signal: AbortSignal.timeout(20000) });
+  const data = await res.json();
+
+  if (data.error) {
+    console.error(`[TornLogTracker] API-Fehler ${data.error.code}: ${data.error.error}`);
+    return [];
+  }
+
+  const logObj = data.log || {};
+  return Object.entries(logObj)
+    .map(([ts, entry]) => ({ ...entry, timestamp: Number(ts) }))
+    .sort((a, b) => a.timestamp - b.timestamp);
+}
+
+/**
+ * Startet den Torn-Log-Tracker. Ruf diese Funktion einmal auf, nachdem
+ * dein Bot eingeloggt ist (z.B. im "ready"-Event).
+ *
+ * @param {import("discord.js").Client} client - dein bestehender Bot-Client
+ * @param {object} options
+ * @param {string} options.apiKey - Torn API Key (Full Access oder Custom mit "log")
+ * @param {string} [options.userId] - Torn User-ID (leer = Key-Owner selbst)
+ * @param {string} [options.channelName="LOGS"] - Name des Ziel-Channels
+ * @param {number} [options.intervalMs=60000] - Poll-Intervall in ms
+ * @param {string} [options.categories] - Komma-getrennte Torn Log-Kategorien (optional)
+ */
+function startTornLogTracker(client, options) {
+  const {
+    apiKey,
+    userId = "",
+    channelName = "LOGS",
+    intervalMs = 60000,
+    categories = "",
+  } = options;
+
+  if (!apiKey) throw new Error("[TornLogTracker] apiKey fehlt.");
+
+  const state = loadState();
+
+  const poll = async () => {
+    const channel = client.channels.cache.find(
+      (c) => c.name?.toLowerCase() === channelName.toLowerCase() && c.isTextBased()
+    );
+
+    if (!channel) {
+      console.warn(`[TornLogTracker] Kein Channel namens '${channelName}' gefunden.`);
+      return;
+    }
+
+    let entries;
+    try {
+      entries = await fetchLogs({
+        apiKey,
+        userId,
+        fromTs: state.lastTimestamp,
+        categories,
+      });
+    } catch (err) {
+      console.error("[TornLogTracker] Fehler beim Abrufen der Logs:", err);
+      return;
+    }
+
+    if (entries.length === 0) return;
+
+    for (const entry of entries) {
+      try {
+        await channel.send({ embeds: [buildEmbed(entry)] });
+      } catch (err) {
+        console.error("[TornLogTracker] Konnte Nachricht nicht senden:", err);
+      }
+      await new Promise((r) => setTimeout(r, 500)); // Rate-Limit schonen
+    }
+
+    state.lastTimestamp = entries[entries.length - 1].timestamp;
+    saveState(state);
+    console.log(`[TornLogTracker] ${entries.length} neue Log-Einträge gepostet.`);
+  };
+
+  poll(); // sofort einmal prüfen
+  setInterval(poll, intervalMs);
+}
+
+module.exports = { startTornLogTracker };
+// tornLogTracker.js
+const fs = require("fs");
+const path = require("path");
+const { EmbedBuilder } = require("discord.js");
+
+const TORN_API_BASE = "https://api.torn.com/user/";
+const STATE_FILE = path.join(__dirname, "torn-log-state.json");
+
+let intervalHandle = null; // merkt sich den laufenden Poll-Timer
+
+function loadState() {
+  try {
+    return JSON.parse(fs.readFileSync(STATE_FILE, "utf8"));
+  } catch {
+    return { lastTimestamp: 0 };
+  }
+}
+
+function saveState(state) {
+  fs.writeFileSync(STATE_FILE, JSON.stringify(state));
+}
+
+function buildEmbed(entry) {
+  const embed = new EmbedBuilder()
+    .setTitle(entry.title || "Torn Log Eintrag")
+    .setColor(0x5865f2)
+    .setTimestamp(entry.timestamp * 1000);
+
+  if (entry.data && typeof entry.data === "object") {
+    const lines = Object.entries(entry.data).map(([k, v]) => `**${k}:** ${v}`);
+    const text = lines.join("\n").slice(0, 1024);
+    if (text) embed.addFields({ name: "Details", value: text });
+  }
+
+  if (entry.category) embed.setFooter({ text: `Kategorie: ${entry.category}` });
+
+  return embed;
+}
+
+async function fetchLogs({ apiKey, userId, fromTs, categories }) {
+  const params = new URLSearchParams({ selections: "log", key: apiKey, sort: "ASC" });
+  if (fromTs) params.set("from", String(fromTs + 1));
+  if (categories) params.set("cat", categories);
+
+  const url = `${TORN_API_BASE}${userId || ""}?${params.toString()}`;
+  const res = await fetch(url, { signal: AbortSignal.timeout(20000) });
+  const data = await res.json();
+
+  if (data.error) {
+    console.error(`[TornLogTracker] API-Fehler ${data.error.code}: ${data.error.error}`);
+    return [];
+  }
+
+  const logObj = data.log || {};
+  return Object.entries(logObj)
+    .map(([ts, entry]) => ({ ...entry, timestamp: Number(ts) }))
+    .sort((a, b) => a.timestamp - b.timestamp);
+}
+
+async function poll(client, { apiKey, userId, channelName, categories }) {
+  const channel = client.channels.cache.find(
+    (c) => c.name?.toLowerCase() === channelName.toLowerCase() && c.isTextBased()
+  );
+  if (!channel) {
+    console.warn(`[TornLogTracker] Kein Channel namens '${channelName}' gefunden.`);
+    return;
+  }
+
+  const state = loadState();
+  let entries;
+  try {
+    entries = await fetchLogs({ apiKey, userId, fromTs: state.lastTimestamp, categories });
+  } catch (err) {
+    console.error("[TornLogTracker] Fehler beim Abrufen der Logs:", err);
+    return;
+  }
+  if (entries.length === 0) return;
+
+  for (const entry of entries) {
+    try {
+      await channel.send({ embeds: [buildEmbed(entry)] });
+    } catch (err) {
+      console.error("[TornLogTracker] Konnte Nachricht nicht senden:", err);
+    }
+    await new Promise((r) => setTimeout(r, 500));
+  }
+
+  state.lastTimestamp = entries[entries.length - 1].timestamp;
+  saveState(state);
+  console.log(`[TornLogTracker] ${entries.length} neue Log-Einträge gepostet.`);
+}
+
+function isRunning() {
+  return intervalHandle !== null;
+}
+
+function startTornLogTracker(client, options) {
+  if (intervalHandle) return false; // läuft bereits
+
+  const { apiKey, userId = "", channelName = "LOGS", intervalMs = 60000, categories = "" } = options;
+  if (!apiKey) throw new Error("[TornLogTracker] apiKey fehlt.");
+
+  const opts = { apiKey, userId, channelName, categories };
+  poll(client, opts); // sofort einmal prüfen
+  intervalHandle = setInterval(() => poll(client, opts), intervalMs);
+  return true;
+}
+
+function stopTornLogTracker() {
+  if (!intervalHandle) return false; // lief nicht
+  clearInterval(intervalHandle);
+  intervalHandle = null;
+  return true;
+}
+
+module.exports = { startTornLogTracker, stopTornLogTracker, isRunning };
