@@ -55,7 +55,6 @@ async function pollUser(channel, guildId, userConfig) {
         logger.info(`[TornLogTracker] ${relevantEntries.length} neue Log-Einträge (used/bought/sent) für Discord-User ${discordUserId} (Guild ${guildId}) gepostet.`);
     }
 }
-}
 
 function assertDbAvailable() {
     if (!pgDb.isAvailable()) {
