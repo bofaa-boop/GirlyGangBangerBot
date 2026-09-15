@@ -1,4 +1,16 @@
-﻿import 'dotenv/config';
+const { startTornLogTracker } = require("./tornLogTracker");
+
+client.once("ready", () => {
+  console.log(`Eingeloggt als ${client.user.tag}`);
+
+  startTornLogTracker(client, {
+    apiKey: process.env.TORN_API_KEY, // dein Torn API Key
+    channelName: "LOGS",
+    intervalMs: 60000, // 60 Sekunden
+  });
+});
+
+import 'dotenv/config';
 import { Client, Collection, GatewayIntentBits } from 'discord.js';
 import { REST } from '@discordjs/rest';
 import express from 'express';
