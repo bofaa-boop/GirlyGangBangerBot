@@ -13,39 +13,48 @@ const DELAY_BETWEEN_MESSAGES_MS = 500;
 // ganz oben, bei den anderen Konstanten ergänzen:
 const TRACKED_KEYWORDS = ['use', 'used', 'buy', 'bought', 'purchase', 'purchased', 'send', 'sent'];
 
-function isTrackedEntry(entry) {
-    const title = (entry.title || '').toLowerCase();
-    return TRACKED_KEYWORDS.some((keyword) => title.includes(keyword));
-}
-let tablesEnsured = false;
-const activeIntervals = new Map(); // guildId -> interval handle
+async function pollUser(channel, guildId, userConfig) {
+    const { discord_user_id: discordUserId, api_key: apiKey, torn_user_id: tornUserId, categories } = userConfig;
 
-async function ensureTables() {
-    if (tablesEnsured || !pgDb.isAvailable()) return;
-    await pgDb.pool.query(`
-        CREATE TABLE IF NOT EXISTS ${SETTINGS_TABLE} (
-            guild_id VARCHAR(20) PRIMARY KEY,
-            channel_id VARCHAR(20) NOT NULL,
-            enabled BOOLEAN NOT NULL DEFAULT FALSE,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    `);
-    await pgDb.pool.query(`
-        CREATE TABLE IF NOT EXISTS ${USERS_TABLE} (
-            id SERIAL PRIMARY KEY,
-            guild_id VARCHAR(20) NOT NULL,
-            discord_user_id VARCHAR(20) NOT NULL,
-            api_key VARCHAR(64) NOT NULL,
-            torn_user_id VARCHAR(32),
-            categories VARCHAR(255),
-            last_timestamp BIGINT NOT NULL DEFAULT 0,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(guild_id, discord_user_id)
-        )
-    `);
-    tablesEnsured = true;
+    let result;
+    try {
+        result = await fetchLogs({
+            apiKey,
+            tornUserId,
+            fromTs: Number(userConfig.last_timestamp),
+            categories,
+        });
+    } catch (err) {
+        logger.error(`[TornLogTracker] Fehler beim Abrufen der Logs für Discord-User ${discordUserId} (Guild ${guildId}):`, err);
+        return;
+    }
+
+    if (result.apiError) {
+        return;
+    }
+
+    if (result.entries.length === 0) return;
+
+    // Wichtig: last_timestamp trotzdem auf ALLE abgerufenen Einträge setzen,
+    // nicht nur die gefilterten — sonst würden beim nächsten Poll die
+    // herausgefilterten Einträge erneut abgerufen (unnötige API-Last).
+    const relevantEntries = result.entries.filter(isTrackedEntry);
+
+    for (const entry of relevantEntries) {
+        try {
+            await channel.send({ embeds: [buildEmbed(entry, discordUserId)] });
+        } catch (err) {
+            logger.error('[TornLogTracker] Konnte Nachricht nicht senden:', err);
+        }
+        await new Promise((r) => setTimeout(r, DELAY_BETWEEN_MESSAGES_MS));
+    }
+
+    await setUserLastTimestamp(guildId, discordUserId, result.entries[result.entries.length - 1].timestamp);
+
+    if (relevantEntries.length > 0) {
+        logger.info(`[TornLogTracker] ${relevantEntries.length} neue Log-Einträge (used/bought/sent) für Discord-User ${discordUserId} (Guild ${guildId}) gepostet.`);
+    }
+}
 }
 
 function assertDbAvailable() {
