@@ -6,9 +6,6 @@ import { reconcileTicketPanels, reconcileVerificationPanels, reconcileReactionRo
 import { reconcileLevelRoles } from "../services/leveling/levelRoleSyncService.js";
 import { initRiffyAfterReady } from "../services/music/riffySetup.js";
 import { initTornLogTracker } from "../utils/tornLogTracker.js";
-   import { initTornLogTracker } from './src/utils/tornLogTracker.js';
-   // ...
-   await initTornLogTracker(client);
 
 export default {
   name: Events.ClientReady,
