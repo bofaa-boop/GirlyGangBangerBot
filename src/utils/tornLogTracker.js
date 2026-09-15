@@ -120,25 +120,3 @@ export async function getUserConfig(guildId, discordUserId) {
 
 export async function listRegisteredUsers(guildId) {
     await ensureTables();
-    if (!pgDb.isAvailable()) return [];
-    const result = await pgDb.pool.query(
-        `SELECT discord_user_id, torn_user_id, last_timestamp FROM ${USERS_TABLE} WHERE guild_id = $1 ORDER BY created_at ASC`,
-        [guildId]
-    );
-    return result.rows;
-}
-
-async function setUserLastTimestamp(guildId, discordUserId, ts) {
-    if (!pgDb.isAvailable()) return;
-    await pgDb.pool.query(
-        `UPDATE ${USERS_TABLE} SET last_timestamp = $3, updated_at = CURRENT_TIMESTAMP
-         WHERE guild_id = $1 AND discord_user_id = $2`,
-        [guildId, discordUserId, ts]
-    );
-}
-
-// ---------------------------------------------------------------------------
-// Torn API
-// ---------------------------------------------------------------------------
-async function fetchLogs({ apiKey, tornUserId, fromTs, categories }) {
-    const params = new URLSearchParams({ selections: 'log', key: apiKey, sort:
