@@ -175,6 +175,10 @@ class TitanBot extends Client {
       const dbStatus = this.db?.getStatus?.() || { isDegraded: true, connectionType: 'none' };
       const isReady = this.isReady() && !dbStatus.isDegraded;
 
+import { initTornLogTracker } from './src/utils/tornLogTracker.js';
+// ...
+await initTornLogTracker(client);
+      
       const metrics = {
         guildCount: this.guilds?.cache?.size ?? 0,
         commandCount: this.commands?.size ?? 0,
