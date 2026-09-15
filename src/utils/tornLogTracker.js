@@ -9,7 +9,14 @@ const TORN_API_BASE = 'https://api.torn.com/user/';
 const DEFAULT_INTERVAL_MS = 60000;
 const DELAY_BETWEEN_USERS_MS = 1500; // schont sowohl Torn- als auch Discord-Rate-Limits
 const DELAY_BETWEEN_MESSAGES_MS = 500;
+// src/utils/tornLogTracker.js
+// ganz oben, bei den anderen Konstanten ergänzen:
+const TRACKED_KEYWORDS = ['use', 'used', 'buy', 'bought', 'purchase', 'purchased', 'send', 'sent'];
 
+function isTrackedEntry(entry) {
+    const title = (entry.title || '').toLowerCase();
+    return TRACKED_KEYWORDS.some((keyword) => title.includes(keyword));
+}
 let tablesEnsured = false;
 const activeIntervals = new Map(); // guildId -> interval handle
 
