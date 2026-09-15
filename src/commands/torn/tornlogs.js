@@ -2,7 +2,9 @@
 import { SlashCommandBuilder, ChannelType } from 'discord.js';
 import { replyUserError, ErrorTypes } from '../../utils/errorHandler.js';
 
-import tornlogsSetup from './modules/tornlogs_setup.js';
+import tornlogsSetchannel from './modules/tornlogs_setchannel.js';
+import tornlogsRegister from './modules/tornlogs_register.js';
+import tornlogsUnregister from './modules/tornlogs_unregister.js';
 import tornlogsStart from './modules/tornlogs_start.js';
 import tornlogsStop from './modules/tornlogs_stop.js';
 import tornlogsStatus from './modules/tornlogs_status.js';
@@ -10,34 +12,41 @@ import tornlogsStatus from './modules/tornlogs_status.js';
 export default {
     data: new SlashCommandBuilder()
         .setName('tornlogs')
-        .setDescription('Torn.com Log-Tracking verwalten (Manage Server erforderlich)')
+        .setDescription('Torn.com Log-Tracking verwalten')
         .addSubcommand(subcommand =>
             subcommand
-                .setName('setup')
-                .setDescription('Torn-Log-Tracking konfigurieren')
-                .addStringOption(option =>
-                    option.setName('apikey').setDescription('Torn API Key (Full Access oder Custom mit log-Selection)').setRequired(true)
-                )
+                .setName('setchannel')
+                .setDescription('Channel für Log-Einträge festlegen (Manage Server erforderlich)')
                 .addChannelOption(option =>
                     option.setName('channel').setDescription('Channel für Log-Einträge').addChannelTypes(ChannelType.GuildText).setRequired(true)
                 )
+        )
+        .addSubcommand(subcommand =>
+            subcommand
+                .setName('register')
+                .setDescription('Deinen eigenen Torn API Key registrieren')
                 .addStringOption(option =>
-                    option.setName('userid').setDescription('Torn User-ID (leer = Key-Owner)').setRequired(false)
+                    option.setName('apikey').setDescription('Dein Torn API Key (Full Access oder Custom mit log-Selection)').setRequired(true)
                 )
                 .addStringOption(option =>
-                    option.setName('categories').setDescription('Komma-getrennte Log-Kategorien (leer = alle)').setRequired(false)
+                    option.setName('userid').setDescription('Deine Torn User-ID (leer = automatisch aus dem Key)').setRequired(false)
                 )
         )
-        .addSubcommand(subcommand => subcommand.setName('start').setDescription('Log-Tracking starten'))
-        .addSubcommand(subcommand => subcommand.setName('stop').setDescription('Log-Tracking stoppen'))
+        .addSubcommand(subcommand => subcommand.setName('unregister').setDescription('Deine Registrierung entfernen'))
+        .addSubcommand(subcommand => subcommand.setName('start').setDescription('Log-Tracking für den Server starten (Manage Server erforderlich)'))
+        .addSubcommand(subcommand => subcommand.setName('stop').setDescription('Log-Tracking für den Server stoppen (Manage Server erforderlich)'))
         .addSubcommand(subcommand => subcommand.setName('status').setDescription('Status anzeigen')),
 
     async execute(interaction, config, client) {
         const subcommand = interaction.options.getSubcommand();
 
         switch (subcommand) {
-            case 'setup':
-                return await tornlogsSetup.execute(interaction, config, client);
+            case 'setchannel':
+                return await tornlogsSetchannel.execute(interaction, config, client);
+            case 'register':
+                return await tornlogsRegister.execute(interaction, config, client);
+            case 'unregister':
+                return await tornlogsUnregister.execute(interaction, config, client);
             case 'start':
                 return await tornlogsStart.execute(interaction, config, client);
             case 'stop':
