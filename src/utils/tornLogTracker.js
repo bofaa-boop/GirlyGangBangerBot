@@ -248,7 +248,18 @@ async function fetchOnlineStatus({ apiKey, tornUserId }) {
     const status = data.last_action?.status || 'Offline';
     return { status, apiError: null };
 }
+export async function verifyTornApiKey(apiKey) {
+    const params = new URLSearchParams({ selections: 'basic', key: apiKey });
+    const url = `${TORN_API_BASE}?${params.toString()}`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(20000) });
+    const data = await res.json();
 
+    if (data.error) {
+        return { playerId: null, name: null, apiError: data.error };
+    }
+
+    return { playerId: data.player_id ?? null, name: data.name ?? null, apiError: null };
+}
 function buildEmbed(entry, discordUserId) {
     const embed = new EmbedBuilder()
         .setTitle(entry.title || 'Torn Log Eintrag')
