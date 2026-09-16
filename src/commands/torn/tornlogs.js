@@ -1,4 +1,5 @@
 // src/commands/torn/tornlogs.js
+import tornlogsOnlinechannel from './modules/tornlogs_onlinechannel.js';
 import { SlashCommandBuilder, ChannelType } from 'discord.js';
 import { replyUserError, ErrorTypes } from '../../utils/errorHandler.js';
 
@@ -35,12 +36,22 @@ export default {
         .addSubcommand(subcommand => subcommand.setName('unregister').setDescription('Deine Registrierung entfernen'))
         .addSubcommand(subcommand => subcommand.setName('start').setDescription('Log-Tracking für den Server starten (Manage Server erforderlich)'))
         .addSubcommand(subcommand => subcommand.setName('stop').setDescription('Log-Tracking für den Server stoppen (Manage Server erforderlich)'))
+                .addSubcommand(subcommand =>
+            subcommand
+                .setName('onlinechannel')
+                .setDescription('Channel für Online/Offline-Status & Tages-Zusammenfassung festlegen (Manage Server erforderlich)')
+                .addChannelOption(option =>
+                    option.setName('channel').setDescription('Channel für Online-Status').addChannelTypes(ChannelType.GuildText).setRequired(true)
+                )
+        )
         .addSubcommand(subcommand => subcommand.setName('status').setDescription('Status anzeigen')),
 
     async execute(interaction, config, client) {
         const subcommand = interaction.options.getSubcommand();
 
         switch (subcommand) {
+                        case 'onlinechannel':
+                return await tornlogsOnlinechannel.execute(interaction, config, client);
             case 'setchannel':
                 return await tornlogsSetchannel.execute(interaction, config, client);
             case 'register':
