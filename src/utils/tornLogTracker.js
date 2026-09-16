@@ -11,7 +11,7 @@ const TORN_API_BASE = 'https://api.torn.com/user/';
 const DEFAULT_INTERVAL_MS = 60000;
 const DELAY_BETWEEN_USERS_MS = 1500; // schont sowohl Torn- als auch Discord-Rate-Limits
 const DELAY_BETWEEN_MESSAGES_MS = 500;
-const ACTION_KEYWORDS = ['buy', 'bought', 'purchase', 'purchased', 'receive', 'received', 'send', 'sent'];
+const ACTION_KEYWORDS = ['use', 'used', 'buy', 'bought', 'purchase', 'purchased', 'receive', 'received', 'send', 'sent'];
 const ITEM_KEYWORDS = ['xanax'];
 
 let tablesEnsured = false;
