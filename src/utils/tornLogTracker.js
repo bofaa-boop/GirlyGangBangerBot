@@ -165,6 +165,7 @@ async function fetchLogs({ apiKey, tornUserId, fromTs, categories }) {
 
     const entries = Object.entries(data.log || {})
         .map(([ts, entry]) => ({ ...entry, timestamp: Number(ts) }))
+        .filter((entry) => Number.isFinite(entry.timestamp))
         .sort((a, b) => a.timestamp - b.timestamp);
 
     return { entries, apiError: null };
@@ -231,11 +232,15 @@ async function pollUser(channel, guildId, userConfig) {
         await new Promise((r) => setTimeout(r, DELAY_BETWEEN_MESSAGES_MS));
     }
 
-    await setUserLastTimestamp(guildId, discordUserId, result.entries[result.entries.length - 1].timestamp);
+    const newLastTimestamp = result.entries[result.entries.length - 1].timestamp;
+    if (Number.isFinite(newLastTimestamp)) {
+        await setUserLastTimestamp(guildId, discordUserId, newLastTimestamp);
+    } else {
+        logger.warn(`[TornLogTracker] Ungültiger Zeitstempel bei Discord-User ${discordUserId} (Guild ${guildId}), überspringe Update.`);
+    }
 
     if (relevantEntries.length > 0) {
-        logger.info(`[TornLogTracker] ${relevantEntries.length} neue Log-Einträge (used/bought/sent) für Discord-User ${discordUserId} (Guild ${guildId}) gepostet.`);
-    }
+    
 }
 
 async function poll(client, guildId) {
