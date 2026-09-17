@@ -356,7 +356,7 @@ async function pollUser(channel, guildId, userConfig) {
     }
 
     if (result.entries.length === 0) return;
-
+        logger.info(`[TornLogTracker DEBUG] User ${discordUserId}: ${result.entries.length} Log-Eintrag(e) abgerufen — Titel: ${result.entries.map(e => e.title).join(' | ')}`);
     const relevantEntries = result.entries.filter(isTrackedEntry);
 
     for (const entry of relevantEntries) {
@@ -395,7 +395,7 @@ async function pollUserOnlineStatus(channel, guildId, userConfig) {
     }
 
     if (result.apiError || !result.status) return;
-
+    logger.info(`[TornLogTracker DEBUG] User ${discordUserId}: aktueller Online-Status laut Torn = "${result.status}"`);
     const nowSeconds = Math.floor(Date.now() / 1000);
     const currentDate = new Date(nowSeconds * 1000).toISOString().slice(0, 10);
 
